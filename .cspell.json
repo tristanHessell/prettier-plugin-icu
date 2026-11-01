@@ -1,0 +1,17 @@
+{
+  "version": "0.2",
+  "language": "en",
+  "ignorePaths": ["node_modules/**", "dist/**", "package-lock.json"],
+  "words": [
+    "commitlint",
+    "FormatJS",
+    "FormattedMessage",
+    "intl",
+    "katex",
+    "messageformat",
+    "prettier",
+    "quasis",
+    "selectordinal",
+    "vitest"
+  ]
+}
