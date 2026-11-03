@@ -19,7 +19,98 @@ describe("ICU message formatting", () => {
     );
 
     expect(result).toContain(
-      "defaultMessage={`{count, plural,\n  one {one item}\n  other {# items}\n}`}",
+      'defaultMessage="{count, plural,\n  one   {one item}\n  other {# items}\n}"',
+    );
+  });
+
+  it("uses the source indentation for multiline JSX messages", async () => {
+    const result = await format(
+      `function Example() {
+  return (
+      <FormattedMessage
+        defaultMessage="{count, plural, one {# card} other {# cards}}"
+      />
+  );
+}`,
+      "example.jsx",
+    );
+
+    expect(result).toContain(
+      'defaultMessage="{count, plural,\n          one   {# card}\n          other {# cards}\n        }"',
+    );
+  });
+
+  it("aligns select and plural option blocks", async () => {
+    const result = await format(
+      'intl.formatMessage({ defaultMessage: "{name}, {count, plural, one {# point} other {# points}}" });',
+      "example.js",
+    );
+
+    expect(result).toContain(
+      "defaultMessage: `{name}, {count, plural,\n  one   {# point}\n  other {# points}\n}`",
+    );
+  });
+
+  it.each([
+    { options: { useTabs: true }, indentation: "\t" },
+    { options: { tabWidth: 4 }, indentation: "    " },
+  ])(
+    "uses the configured indentation unit",
+    async ({ options, indentation }) => {
+      const result = await prettier.format(
+        'intl.formatMessage({ defaultMessage: "{count, plural, one {one} other {#}}" });',
+        { filepath: "example.js", plugins: [plugin], ...options },
+      );
+
+      expect(result).toContain(
+        `plural,\n${indentation}one   {one}\n${indentation}other {#}\n}`,
+      );
+    },
+  );
+
+  it("formats FormattedMessage defaultMessage values without changing to template strings", async () => {
+    const result = await format(
+      "const message = <FormattedMessage defaultMessage='{count, plural, one {one item} other {# items}}' />;",
+      "example.jsx",
+    );
+
+    expect(result).toContain(
+      'defaultMessage="{count, plural,\n  one   {one item}\n  other {# items}\n}"',
+    );
+  });
+
+  it("uses the configured JSX quote delimiter for FormattedMessage values", async () => {
+    const result = await prettier.format(
+      'const message = <FormattedMessage defaultMessage="{count, plural, one {one} other {#}}" />;',
+      {
+        filepath: "example.jsx",
+        plugins: [plugin],
+        jsxSingleQuote: true,
+      },
+    );
+
+    expect(result).toContain(
+      "defaultMessage='{count, plural,\n  one   {one}\n  other {#}\n}'",
+    );
+  });
+
+  it("preserves apostrophes in FormattedMessage values", async () => {
+    const result = await format(
+      `<FormattedMessage defaultMessage="{name}'s hand" id="hand.playerTitle" values={{ name: ownerName }} />`,
+      "example.jsx",
+    );
+
+    expect(result).toContain(`defaultMessage="{name}'s hand"`);
+  });
+
+  it("preserves quoted content in FormattedMessage attributes", async () => {
+    const result = await format(
+      'const message = <FormattedMessage defaultMessage="{name, select, other {say &quot;hi&quot; &amp; welcome}}" />;',
+      "example.jsx",
+    );
+
+    expect(result).toContain(
+      `defaultMessage='{name, select,\n  other {say "hi" &amp; welcome}\n}'`,
     );
   });
 
@@ -30,7 +121,7 @@ describe("ICU message formatting", () => {
     );
 
     expect(result).toContain(
-      "defaultMessage={`{count, plural,\n  one {one}\n  other {#}\n}`}",
+      'defaultMessage={"{count, plural,\\n  one   {one}\\n  other {#}\\n}"}',
     );
   });
 
@@ -41,8 +132,46 @@ describe("ICU message formatting", () => {
     );
 
     expect(result).toContain(
-      "defaultMessage: `{gender, select,\n  male {He}\n  female {She}\n  other {They}\n}`",
+      "defaultMessage: `{gender, select,\n  male   {He}\n  female {She}\n  other  {They}\n}`",
     );
+  });
+
+  it("uses the source indentation for formatted message descriptors", async () => {
+    const result = await format(
+      `intl.formatMessage({
+          defaultMessage: '{name}, {type, select, computer {AI} other {human}}',
+          id: 'player.avatar.label',
+        });`,
+      "example.js",
+    );
+
+    expect(result).toContain(
+      "defaultMessage: `{name}, {type, select,\n            computer {AI}\n            other    {human}\n          }`",
+    );
+  });
+
+  it("normalizes indentation in already multiline message descriptors", async () => {
+    const source = `function Example() {
+  if (true) {
+    if (true) {
+      return [
+        {
+          defaultMessage: \`{name}, {type, select,
+            computer {AI}
+            other    {human}
+     }\`,
+          id: 'player.avatar.label',
+        },
+      ];
+    }
+  }
+}`;
+    const result = await format(source, "example.js");
+
+    expect(result).toContain(
+      "defaultMessage: `{name}, {type, select,\n            computer {AI}\n            other    {human}\n          }`",
+    );
+    expect(await format(result, "example.js")).toBe(result);
   });
 
   it("formats direct intl.formattedMessage strings in TypeScript", async () => {
@@ -52,7 +181,20 @@ describe("ICU message formatting", () => {
     );
 
     expect(result).toContain(
-      "intl.formattedMessage(`{count, plural,\n  one {one}\n  other {#}\n}`)",
+      "intl.formattedMessage(`{count, plural,\n  one   {one}\n  other {#}\n}`)",
+    );
+  });
+
+  it("uses the source indentation for direct intl.formattedMessage strings", async () => {
+    const result = await format(
+      `function Example() {
+  return intl.formattedMessage("{count, plural, one {one} other {#}}");
+}`,
+      "example.ts",
+    );
+
+    expect(result).toContain(
+      "intl.formattedMessage(`{count, plural,\n    one   {one}\n    other {#}\n  }`)",
     );
   });
 
@@ -63,7 +205,7 @@ describe("ICU message formatting", () => {
     );
 
     expect(result).toContain(
-      "defaultMessage: `{count, plural,\n  one {one}\n  other {#}\n}`",
+      "defaultMessage: `{count, plural,\n  one   {one}\n  other {#}\n}`",
     );
   });
 

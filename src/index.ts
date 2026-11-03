@@ -17,7 +17,6 @@ type Node = {
 
 function formatLiteral(value: string, inPlural: boolean): string {
   return value
-    .replaceAll("'", "''")
     .replaceAll("{", "'{'")
     .replaceAll("}", "'}'")
     .replaceAll("<", "'<'")
@@ -46,7 +45,8 @@ function formatStyle(style: unknown): string {
 
 function formatElements(
   elements: MessageFormatElement[],
-  indent = 0,
+  indent = "",
+  indentationUnit = "  ",
   inPlural = false,
 ): string {
   return elements
@@ -70,7 +70,7 @@ function formatElements(
         case TYPE.pound:
           return "#";
         case TYPE.tag:
-          return `<${element.value}>${formatElements(element.children, indent, inPlural)}</${element.value}>`;
+          return `<${element.value}>${formatElements(element.children, indent, indentationUnit, inPlural)}</${element.value}>`;
         case TYPE.select:
         case TYPE.plural: {
           const type =
@@ -83,13 +83,16 @@ function formatElements(
             element.type === TYPE.plural && element.offset
               ? ` offset:${element.offset}`
               : "";
-          const pad = " ".repeat(indent);
-          const branchIndent = indent + 2;
-          const branches = Object.entries(element.options).map(
-            ([selector, option]) =>
-              `${" ".repeat(branchIndent)}${selector} {${formatElements(option.value, branchIndent + 2, inPlural || element.type === TYPE.plural)}}`,
+          const branchIndent = indent + indentationUnit;
+          const options = Object.entries(element.options);
+          const selectorWidth = Math.max(
+            ...options.map(([selector]) => selector.length),
           );
-          return `{${element.value}, ${type},${offset}\n${branches.join("\n")}\n${pad}}`;
+          const branches = options.map(
+            ([selector, option]) =>
+              `${branchIndent}${selector.padEnd(selectorWidth)} {${formatElements(option.value, branchIndent + indentationUnit, indentationUnit, inPlural || element.type === TYPE.plural)}}`,
+          );
+          return `{${element.value}, ${type},${offset}\n${branches.join("\n")}\n${indent}}`;
         }
       }
     })
@@ -123,6 +126,7 @@ function formatSource(
   source: string,
   filepath: string | undefined,
   parser: unknown,
+  indentationUnit: string,
 ): string {
   let ast: Node;
   try {
@@ -135,8 +139,21 @@ function formatSource(
     return source;
   }
 
-  const candidates = new Map<string, { node: Node; jsxAttribute: boolean }>();
-  const add = (value: unknown, jsxAttribute = false) => {
+  const candidates = new Map<
+    string,
+    {
+      node: Node;
+      formattedComponent: boolean;
+      jsxStringAttribute: boolean;
+      sourceIndent: boolean;
+    }
+  >();
+  const add = (
+    value: unknown,
+    formattedComponent = false,
+    jsxStringAttribute = false,
+    sourceIndent = false,
+  ) => {
     if (value && typeof value === "object") {
       const node = value as Node;
       if (
@@ -144,7 +161,12 @@ function formatSource(
         node.start !== undefined &&
         node.end !== undefined
       ) {
-        candidates.set(`${node.start}:${node.end}`, { node, jsxAttribute });
+        candidates.set(`${node.start}:${node.end}`, {
+          node,
+          formattedComponent,
+          jsxStringAttribute,
+          sourceIndent,
+        });
       }
     }
   };
@@ -169,7 +191,7 @@ function formatSource(
           ) {
             const value = attr.value as Node;
             const isExpression = value.type === "JSXExpressionContainer";
-            add(isExpression ? value.expression : value, !isExpression);
+            add(isExpression ? value.expression : value, true, !isExpression);
           }
         }
       }
@@ -179,7 +201,8 @@ function formatSource(
       node.type === "ObjectProperty" &&
       propertyName(node.key as Node) === "defaultMessage"
     ) {
-      add(node.value);
+      const message = node.value as Node;
+      add(message, false, false, true);
     }
 
     if (node.type === "CallExpression") {
@@ -193,8 +216,9 @@ function formatSource(
         if (
           args?.[0]?.type === "StringLiteral" ||
           args?.[0]?.type === "TemplateLiteral"
-        )
-          add(args[0]);
+        ) {
+          add(args[0], false, false, method === "formattedMessage");
+        }
       }
     }
 
@@ -205,7 +229,12 @@ function formatSource(
   visit(ast);
 
   const edits: { start: number; end: number; text: string }[] = [];
-  for (const { node, jsxAttribute } of candidates.values()) {
+  for (const {
+    node,
+    formattedComponent,
+    jsxStringAttribute,
+    sourceIndent,
+  } of candidates.values()) {
     const message = staticString(node);
     if (message === undefined) continue;
     let elements: MessageFormatElement[];
@@ -214,16 +243,49 @@ function formatSource(
     } catch {
       continue;
     }
-    const formatted = formatElements(elements);
+    const lineStart = source.lastIndexOf("\n", node.start! - 1) + 1;
+    const sourceLineIndent =
+      jsxStringAttribute || sourceIndent
+        ? (source.slice(lineStart, node.start!).match(/^[\t ]*/)?.[0] ?? "")
+        : "";
+    const indent =
+      sourceIndent &&
+      node.type === "TemplateLiteral" &&
+      indentationUnit &&
+      sourceLineIndent.endsWith(indentationUnit) &&
+      formatElements(
+        elements,
+        sourceLineIndent.slice(0, -indentationUnit.length),
+        indentationUnit,
+      ) === message
+        ? sourceLineIndent.slice(0, -indentationUnit.length)
+        : sourceLineIndent;
+    const formatted = formatElements(elements, indent, indentationUnit);
     if (formatted !== message) {
+      const quote = node.start === undefined ? "" : (source[node.start] ?? "");
+      const jsxValue = formatted
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(
+          quote,
+          quote === '"' ? "&quot;" : quote === "'" ? "&apos;" : quote,
+        );
       edits.push({
         start: node.start!,
         end: node.end!,
-        text: `${jsxAttribute ? "{" : ""}\`${formatted
-          .replaceAll("\\", "\\\\")
-          .replaceAll("`", "\\`")
-          .replaceAll("${", "\\${")
-          .replaceAll("\r", "\\r")}\`${jsxAttribute ? "}" : ""}`,
+        text: jsxStringAttribute
+          ? `${quote}${jsxValue}${quote}`
+          : formattedComponent && node.type === "StringLiteral"
+            ? `${quote}${formatted
+                .replaceAll("\\", "\\\\")
+                .replaceAll(quote, `\\${quote}`)
+                .replaceAll("\n", "\\n")
+                .replaceAll("\r", "\\r")}${quote}`
+            : `\`${formatted
+                .replaceAll("\\", "\\\\")
+                .replaceAll("`", "\\`")
+                .replaceAll("${", "\\${")
+                .replaceAll("\r", "\\r")}\``,
       });
     }
   }
@@ -251,7 +313,12 @@ function babelParser(source: string, isTypeScript: boolean): unknown {
 }
 
 const preprocess = (text: string, options: ParserOptions) =>
-  formatSource(text, options.filepath, options.parser);
+  formatSource(
+    text,
+    options.filepath,
+    options.parser,
+    options.useTabs ? "\t" : " ".repeat(options.tabWidth ?? 2),
+  );
 
 function withPreprocess(parser: Parser): Parser {
   return { ...parser, preprocess };
