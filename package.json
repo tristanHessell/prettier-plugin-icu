@@ -6,6 +6,10 @@
     "prettier",
     "icu"
   ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tristanhessell/prettier-plugin-icu.git"
+  },
   "license": "MIT",
   "author": "tristan.hessell@gmail.com",
   "type": "module",
