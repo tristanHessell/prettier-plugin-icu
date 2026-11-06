@@ -8,7 +8,7 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/tristanhessell/prettier-plugin-icu.git"
+    "url": "https://github.com/tristanHessell/prettier-plugin-icu"
   },
   "license": "MIT",
   "author": "tristan.hessell@gmail.com",
