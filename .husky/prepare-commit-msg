@@ -1,0 +1,4 @@
+if [ -z "$2" ] && [ -t 1 ]; then
+  exec < /dev/tty
+  npx --no -- cz --hook
+fi
